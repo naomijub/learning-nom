@@ -1,5 +1,3 @@
-use nom::error::{ErrorKind, VerboseError};
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct URI<'a> {
     scheme: Scheme,
@@ -27,10 +25,6 @@ pub enum Host {
 
 pub type QueryParam<'a> = (&'a str, &'a str);
 pub type QueryParams<'a> = Vec<QueryParam<'a>>;
-pub type IResult<I:, O, E = (I, ErrorKind)> = Result<(I, O), E>;
-pub type Res<T, U> = IResult<T, U, VerboseError<T>>;
-
-
 
 impl From<&str> for Scheme {
     fn from(i: &str) -> Self {
