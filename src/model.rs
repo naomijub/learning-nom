@@ -1,3 +1,4 @@
+#[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq)]
 pub struct URI<'a> {
     scheme: Scheme,
@@ -9,17 +10,23 @@ pub struct URI<'a> {
     fragment: Option<&'a str>,
 }
 
+#[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum Scheme {
+    #[allow(non_camel_case_types)]
     HTTP,
+    #[allow(non_camel_case_types)]
     HTTPS,
 }
 
 pub type Authority<'a> = (&'a str, Option<&'a str>);
 
+#[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum Host {
+    #[allow(non_camel_case_types)]
     HOST(String),
+    #[allow(non_camel_case_types)]
     IP([u8; 4]),
 }
 

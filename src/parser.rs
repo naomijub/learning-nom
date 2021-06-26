@@ -3,15 +3,15 @@ use nom::{
     bytes::streaming::{tag, tag_no_case, take},
     character::streaming::{alpha1, alphanumeric1, one_of},
     combinator::opt,
-    error::{context, VerboseError},
-    multi::{count, many1, many_m_n},
+    error::{context, ErrorKind, VerboseError},
+    multi::{count, many0, many1, many_m_n},
     sequence::{separated_pair, terminated, tuple},
-    Err as NomErr, IResult,
+    AsChar, Err as NomErr, IResult, InputTakeAtPosition,
 };
 
 use crate::{
     alphanumerichyphen,
-    model::{Authority, Host, Scheme},
+    model::{Authority, Host, QueryParams, Scheme},
 };
 
 pub fn scheme(input: &str) -> IResult<&str, Scheme, VerboseError<&str>> {
@@ -37,7 +37,7 @@ pub fn host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
         "host",
         alt((
             tuple((many1(terminated(alphanumerichyphen, tag("."))), alpha1)),
-            tuple((many_m_n(1, 1, alphanumerichyphen), take(0usize))),
+            tuple((many_m_n(1, 1, alphanumerichyphen), take(0_usize))),
         )),
     )(input)
     .map(|(next_input, mut res)| {
@@ -45,6 +45,70 @@ pub fn host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
             res.0.push(res.1);
         }
         (next_input, Host::HOST(res.0.join(".")))
+    })
+}
+
+pub fn ip(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
+    context(
+        "ip",
+        tuple((count(terminated(ip_num, tag(".")), 3), ip_num)),
+    )(input)
+    .map(|(next_input, res)| {
+        let mut result: [u8; 4] = [0, 0, 0, 0];
+        res.0
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, v)| result[i] = v);
+        result[3] = res.1;
+        (next_input, Host::IP(result))
+    })
+}
+
+pub fn ip_or_host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
+    context("ip or host", alt((ip, host)))(input)
+}
+
+pub fn path(input: &str) -> IResult<&str, Vec<&str>, VerboseError<&str>> {
+    context(
+        "path",
+        tuple((
+            tag("/"),
+            many0(terminated(url_code_points, tag("/"))),
+            opt(url_code_points),
+        )),
+    )(input)
+    .map(|(next_input, res)| {
+        let mut path: Vec<&str> = res.1.iter().map(|p| p.to_owned()).collect();
+        if let Some(last) = res.2 {
+            path.push(last);
+        }
+        (next_input, path)
+    })
+}
+
+pub fn query_params(input: &str) -> IResult<&str, QueryParams, VerboseError<&str>> {
+    context(
+        "query params",
+        tuple((
+            tag("?"),
+            url_code_points,
+            tag("="),
+            url_code_points,
+            many0(tuple((
+                tag("&"),
+                url_code_points,
+                tag("="),
+                url_code_points,
+            ))),
+        )),
+    )(input)
+    .map(|(next_input, res)| {
+        let mut qps = Vec::new();
+        qps.push((res.1, res.3));
+        for qp in res.4 {
+            qps.push((qp.1, qp.3));
+        }
+        (next_input, qps)
     })
 }
 
@@ -67,24 +131,18 @@ fn n_to_m_digits<'a>(
     }
 }
 
-pub fn ip(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
-    context(
-        "ip",
-        tuple((count(terminated(ip_num, tag(".")), 3), ip_num)),
-    )(input)
-    .map(|(next_input, res)| {
-        let mut result: [u8; 4] = [0, 0, 0, 0];
-        res.0
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, v)| result[i] = v);
-        result[3] = res.1;
-        (next_input, Host::IP(result))
-    })
-}
-
-pub fn ip_or_host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
-    context("ip or host", alt((ip, host)))(input)
+fn url_code_points<T>(i: T) -> IResult<T, T, VerboseError<T>>
+where
+    T: InputTakeAtPosition,
+    <T as InputTakeAtPosition>::Item: AsChar,
+{
+    i.split_at_position1_complete(
+        |item| {
+            let char_item = item.as_char();
+            (char_item != '-') && !char_item.is_alphanum() && (char_item != '.')
+        },
+        ErrorKind::AlphaNumeric,
+    )
 }
 
 #[cfg(test)]
@@ -270,6 +328,31 @@ mod tests {
         assert_eq!(
             host("example.org:8080"),
             Ok((":8080", Host::HOST("example.org".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_path() {
+        assert_eq!(path("/a/b/c?d"), Ok(("?d", vec!["a", "b", "c"])));
+        assert_eq!(path("/a/b/c/?d"), Ok(("?d", vec!["a", "b", "c"])));
+        assert_eq!(path("/a/b-c-d/c/?d"), Ok(("?d", vec!["a", "b-c-d", "c"])));
+        assert_eq!(path("/a/1234/c/?d"), Ok(("?d", vec!["a", "1234", "c"])));
+        assert_eq!(
+            path("/a/1234/c.txt?d"),
+            Ok(("?d", vec!["a", "1234", "c.txt"]))
+        );
+    }
+
+    #[test]
+    fn test_query_params() {
+        assert_eq!(
+            query_params("?bla=5&blub=val#yay"),
+            Ok(("#yay", vec![("bla", "5"), ("blub", "val")]))
+        );
+
+        assert_eq!(
+            query_params("?bla-blub=arr-arr#yay"),
+            Ok(("#yay", vec![("bla-blub", "arr-arr"),]))
         );
     }
 }
