@@ -1,13 +1,13 @@
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq)]
 pub struct URI<'a> {
-    scheme: Scheme,
-    authority: Option<Authority<'a>>,
-    host: Host,
-    port: Option<u16>,
-    path: Option<Vec<&'a str>>,
-    query: Option<QueryParams<'a>>,
-    fragment: Option<&'a str>,
+    pub(crate) scheme: Scheme,
+    pub(crate) authority: Option<Authority<'a>>,
+    pub(crate) host: Host,
+    pub(crate) port: Option<u16>,
+    pub(crate) path: Option<Vec<&'a str>>,
+    pub(crate) query: Option<QueryParams<'a>>,
+    pub(crate) fragment: Option<&'a str>,
 }
 
 #[allow(non_camel_case_types)]

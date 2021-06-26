@@ -5,7 +5,7 @@ use nom::{
     combinator::opt,
     error::{context, ErrorKind, VerboseError},
     multi::{count, many0, many1, many_m_n},
-    sequence::{separated_pair, terminated, tuple},
+    sequence::{preceded, separated_pair, terminated, tuple},
     AsChar, Err as NomErr, IResult, InputTakeAtPosition,
 };
 
@@ -14,7 +14,7 @@ use crate::{
     model::{Authority, Host, QueryParams, Scheme},
 };
 
-pub fn scheme(input: &str) -> IResult<&str, Scheme, VerboseError<&str>> {
+pub(crate) fn scheme(input: &str) -> IResult<&str, Scheme, VerboseError<&str>> {
     context(
         "scheme",
         alt((tag_no_case("HTTP://"), tag_no_case("HTTPS://"))),
@@ -22,7 +22,7 @@ pub fn scheme(input: &str) -> IResult<&str, Scheme, VerboseError<&str>> {
     .map(|(next_input, res)| (next_input, res.into()))
 }
 
-pub fn authority(input: &str) -> IResult<&str, Authority, VerboseError<&str>> {
+pub(crate) fn authority(input: &str) -> IResult<&str, Authority, VerboseError<&str>> {
     context(
         "authority",
         terminated(
@@ -32,7 +32,7 @@ pub fn authority(input: &str) -> IResult<&str, Authority, VerboseError<&str>> {
     )(input)
 }
 
-pub fn host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
+pub(crate) fn host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
     context(
         "host",
         alt((
@@ -48,7 +48,7 @@ pub fn host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
     })
 }
 
-pub fn ip(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
+pub(crate) fn ip(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
     context(
         "ip",
         tuple((count(terminated(ip_num, tag(".")), 3), ip_num)),
@@ -64,11 +64,20 @@ pub fn ip(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
     })
 }
 
-pub fn ip_or_host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
+pub(crate) fn ip_or_host(input: &str) -> IResult<&str, Host, VerboseError<&str>> {
     context("ip or host", alt((ip, host)))(input)
 }
 
-pub fn path(input: &str) -> IResult<&str, Vec<&str>, VerboseError<&str>> {
+pub(crate) fn port(input: &str) -> IResult<&str, u16, VerboseError<&str>> {
+    context("port", preceded(tag(":"), n_to_m_digits(2, 4)))(input).and_then(|(next_input, res)| {
+        match res.parse::<u16>() {
+            Ok(n) => Ok((next_input, n)),
+            Err(_) => Err(NomErr::Error(VerboseError { errors: vec![] })),
+        }
+    })
+}
+
+pub(crate) fn path(input: &str) -> IResult<&str, Vec<&str>, VerboseError<&str>> {
     context(
         "path",
         tuple((
@@ -86,7 +95,7 @@ pub fn path(input: &str) -> IResult<&str, Vec<&str>, VerboseError<&str>> {
     })
 }
 
-pub fn query_params(input: &str) -> IResult<&str, QueryParams, VerboseError<&str>> {
+pub(crate) fn query_params(input: &str) -> IResult<&str, QueryParams, VerboseError<&str>> {
     context(
         "query params",
         tuple((
@@ -110,6 +119,11 @@ pub fn query_params(input: &str) -> IResult<&str, QueryParams, VerboseError<&str
         }
         (next_input, qps)
     })
+}
+
+pub(crate) fn fragment(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
+    context("fragment", tuple((tag("#"), url_code_points)))(input)
+        .map(|(next_input, res)| (next_input, res.1))
 }
 
 fn ip_num(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
@@ -354,5 +368,11 @@ mod tests {
             query_params("?bla-blub=arr-arr#yay"),
             Ok(("#yay", vec![("bla-blub", "arr-arr"),]))
         );
+    }
+
+    #[test]
+    fn test_fragment() {
+        assert_eq!(fragment("#bla"), Ok(("", "bla")));
+        assert_eq!(fragment("#bla-blub"), Ok(("", "bla-blub")));
     }
 }
